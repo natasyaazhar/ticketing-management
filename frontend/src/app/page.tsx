@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { api } from "../lib/api";
 
 type Priority = "low" | "medium" | "high";
-type Status = "todo" | "doing" | "done";
+type Status = "pending" | "completed";
 
 type Task = {
   id: number;
@@ -24,31 +25,19 @@ export default function Home() {
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("low");
 
+  // 🔥 FETCH FROM API
   useEffect(() => {
-    setTasks([
-      {
-        id: 1,
-        title: "Setup Laravel API",
-        description: "Create basic CRUD endpoints",
-        status: "todo",
-        priority: "high",
-      },
-      {
-        id: 2,
-        title: "Design UI",
-        description: "Build Kanban layout",
-        status: "doing",
-        priority: "medium",
-      },
-      {
-        id: 3,
-        title: "Deploy system",
-        description: "Push to production",
-        status: "done",
-        priority: "low",
-      },
-    ]);
+    fetchTasks();
   }, []);
+
+  const fetchTasks = async () => {
+    try {
+      const data = await api.getTasks();
+      setTasks(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // OPEN CREATE MODAL
   const openCreate = () => {
@@ -68,51 +57,65 @@ export default function Home() {
     setShowModal(true);
   };
 
-  // SAVE (CREATE / UPDATE)
-  const handleSave = () => {
+  // 🔥 SAVE (API)
+  const handleSave = async () => {
     if (!newTask.trim()) return;
 
-    if (editTask) {
-      // UPDATE
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === editTask.id
-            ? { ...t, title: newTask, description, priority }
-            : t
-        )
-      );
-    } else {
-      // CREATE
-      setTasks((prev) => [
-        {
-          id: Date.now(),
+    try {
+      if (editTask) {
+        const updated = await api.updateTask(editTask.id, {
           title: newTask,
           description,
-          status: "todo",
           priority,
-        },
-        ...prev,
-      ]);
+        });
+
+        setTasks((prev) =>
+          prev.map((t) => (t.id === editTask.id ? updated : t))
+        );
+      } else {
+        const created = await api.createTask({
+          title: newTask,
+          description,
+          status: "pending",
+          priority,
+        });
+
+        setTasks((prev) => [created, ...prev]);
+      }
+
+      setShowModal(false);
+    } catch (err) {
+      console.error(err);
     }
-
-    setShowModal(false);
   };
 
-  const deleteTask = (id: number) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+  // 🔥 DELETE (API)
+  const deleteTaskHandler = async (id: number) => {
+    try {
+      await api.deleteTask(id);
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  // DRAG & DROP
+  // 🔥 DRAG & DROP (UPDATE STATUS API)
   const onDragStart = (e: React.DragEvent, id: number) => {
     e.dataTransfer.setData("taskId", id.toString());
   };
 
-  const onDrop = (e: React.DragEvent, status: Status) => {
+  const onDrop = async (e: React.DragEvent, status: Status) => {
     const id = Number(e.dataTransfer.getData("taskId"));
 
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status } : t))
-    );
+    try {
+      const updated = await api.updateTask(id, { status });
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? updated : t))
+      );
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const allowDrop = (e: React.DragEvent) => e.preventDefault();
@@ -130,18 +133,15 @@ export default function Home() {
   };
 
   const statusDot: Record<Status, string> = {
-    todo: "bg-blue-600",
-    doing: "bg-yellow-500",
-    done: "bg-green-700",
+    pending: "bg-blue-600",
+    completed: "bg-green-700",
   };
 
   const statusTextColor: Record<Status, string> = {
-    todo: "text-blue-600",
-    doing: "text-yellow-600",
-    done: "text-green-800",
+    pending: "text-blue-600",
+    completed: "text-green-800",
   };
 
-  // COLUMN
   const Column = ({
     title,
     status,
@@ -152,7 +152,7 @@ export default function Home() {
     <div
       onDrop={(e) => onDrop(e, status)}
       onDragOver={allowDrop}
-      className="bg-white p-4 rounded-xl w-1/3 min-h-[500px] shadow border"
+      className="bg-white p-4 rounded-xl w-1/2 min-h-[500px] shadow border"
     >
       <h2 className="text-gray-800 font-bold mb-3">{title}</h2>
 
@@ -187,7 +187,7 @@ export default function Home() {
                 </button>
 
                 <button
-                  onClick={() => deleteTask(task.id)}
+                  onClick={() => deleteTaskHandler(task.id)}
                   className="text-red-600"
                 >
                   🗑
@@ -202,7 +202,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-100 p-6">
-      {/* HEADER */}
       <div className="flex justify-between mb-6">
         <h1 className="text-3xl font-bold text-black">
           Ticketing Task System
@@ -216,7 +215,6 @@ export default function Home() {
         </button>
       </div>
 
-      {/* CREATED TASKS */}
       <div className="bg-white p-4 rounded-xl shadow mb-6">
         <div className="flex justify-between mb-3">
           <h2 className="font-bold text-black">Created Tasks</h2>
@@ -227,9 +225,8 @@ export default function Home() {
             className="border border-gray-300 text-gray-700 px-3 py-1 rounded"
           >
             <option value="all">All</option>
-            <option value="todo">Todo</option>
-            <option value="doing">Doing</option>
-            <option value="done">Done</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
           </select>
         </div>
 
@@ -256,14 +253,11 @@ export default function Home() {
         </div>
       </div>
 
-      {/* KANBAN */}
       <div className="flex gap-4">
-        <Column title="To Do" status="todo" />
-        <Column title="Doing" status="doing" />
-        <Column title="Done" status="done" />
+        <Column title="pending" status="pending" />
+        <Column title="completed" status="completed" />
       </div>
 
-      {/* MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
           <div className="bg-white p-6 rounded-xl w-[320px]">

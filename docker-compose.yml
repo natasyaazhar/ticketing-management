@@ -4,7 +4,7 @@ services:
       context: ./backend
     container_name: aucthux_laravel_app
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./backend:/var/www
     depends_on:
